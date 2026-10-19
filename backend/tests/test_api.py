@@ -9,6 +9,7 @@ import pandas as pd
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.api.auth import require_user
 from app.services.legacy import get_legacy
 
 
@@ -16,6 +17,12 @@ client = TestClient(app)
 
 
 class ApiTests(unittest.TestCase):
+    def setUp(self) -> None:
+        app.dependency_overrides[require_user] = lambda: None
+
+    def tearDown(self) -> None:
+        app.dependency_overrides.pop(require_user, None)
+
     def test_health_is_independent_of_database(self) -> None:
         response = client.get("/health")
         self.assertEqual(response.status_code, 200)
@@ -98,6 +105,39 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(saved, 1)
         self.assertEqual(connection.cursor.return_value.execute.call_count, 2)
         connection.commit.assert_called_once()
+
+
+class AuthenticationTests(unittest.TestCase):
+    def test_application_endpoint_requires_login(self) -> None:
+        response = TestClient(app).get("/api/trucks")
+        self.assertEqual(response.status_code, 401)
+
+    def test_signup_validates_password_before_database_access(self) -> None:
+        response = TestClient(app).post("/api/auth/signup", json={
+            "name": "Team Member", "email": "member@example.com", "password": "short",
+        })
+        self.assertEqual(response.status_code, 422)
+
+    def test_login_sets_http_only_cookie(self) -> None:
+        user = {"id": 1, "name": "Team Member", "email": "member@example.com"}
+        with patch("app.api.auth.auth.sign_in", return_value=(user, "test-token")):
+            response = TestClient(app).post("/api/auth/login", json={
+                "email": "member@example.com", "password": "a valid test password",
+            })
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("httponly", response.headers["set-cookie"].lower())
+        self.assertIn("samesite=lax", response.headers["set-cookie"].lower())
+        self.assertEqual(response.json()["user"], user)
+
+    def test_logout_requires_request_token(self) -> None:
+        with patch("app.api.auth.auth.user_for_session", return_value={
+            "id": 1, "name": "Team Member", "email": "member@example.com",
+        }), patch("app.api.auth.auth.revoke_session") as revoke:
+            with TestClient(app) as signed_in:
+                signed_in.cookies.set("fuel_session", "test-token")
+                response = signed_in.post("/api/auth/logout")
+        self.assertEqual(response.status_code, 403)
+        revoke.assert_not_called()
 
 
 if __name__ == "__main__":

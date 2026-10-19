@@ -6,17 +6,18 @@ from pathlib import Path
 
 import pandas as pd
 import pyodbc
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import DatabaseConfigurationError
+from app.api.auth import require_user
 from app.services import data
 from app.services.legacy import get_legacy
 
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", dependencies=[Depends(require_user)])
 MAX_PDF_BYTES = 10 * 1024 * 1024
 
 

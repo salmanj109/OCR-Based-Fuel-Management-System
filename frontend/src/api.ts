@@ -1,5 +1,16 @@
 export const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')
 
+export type AuthUser = { id: number; name: string; email: string }
+export type AuthSession = { user: AuthUser; csrf_token: string }
+
+let csrfToken: string | null = null
+
+export function setCsrfToken(value: string | null) { csrfToken = value }
+
+export class ApiError extends Error {
+  constructor(message: string, public status: number) { super(message) }
+}
+
 export type Truck = {
   id: string | null
   name: string
@@ -81,14 +92,22 @@ export type TripInput = {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
+  const headers = new Headers(init?.headers)
+  if (csrfToken && !['GET', 'HEAD'].includes((init?.method || 'GET').toUpperCase())) {
+    headers.set('X-CSRF-Token', csrfToken)
+  }
   try {
-    response = await fetch(`${API_BASE}${path}`, init)
+    response = await fetch(`${API_BASE}${path}`, { ...init, headers, credentials: 'include' })
   } catch {
     throw new Error('Backend is unavailable. Start FastAPI and try again.')
   }
   const body = await response.json().catch(() => ({}))
   if (!response.ok) {
-    throw new Error(typeof body.detail === 'string' ? body.detail : `Request failed (${response.status})`)
+    if (response.status === 401 && !path.startsWith('/api/auth/')) {
+      setCsrfToken(null)
+      window.dispatchEvent(new Event('fuel-session-expired'))
+    }
+    throw new ApiError(typeof body.detail === 'string' ? body.detail : `Request failed (${response.status})`, response.status)
   }
   return body as T
 }
@@ -98,6 +117,10 @@ function json(method: string, body: unknown): RequestInit {
 }
 
 export const api = {
+  signup: (name: string, email: string, password: string) => request<AuthSession>('/api/auth/signup', json('POST', { name, email, password })),
+  login: (email: string, password: string) => request<AuthSession>('/api/auth/login', json('POST', { email, password })),
+  me: () => request<AuthSession>('/api/auth/me'),
+  logout: () => request<{ status: string }>('/api/auth/logout', { method: 'POST' }),
   dashboard: () => request<{ truck_count: number; planned_trip_count: number; estimated_fuel_demand_l: number; recent_trips: TripRecord[] }>('/api/dashboard'),
   trucks: () => request<Truck[]>('/api/trucks'),
   addTruck: (truck: TruckInput) => request<Truck>('/api/trucks', json('POST', truck)),

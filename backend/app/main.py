@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.config import DatabaseConfigurationError
 from app.core.database import check_database_connection
 from app.api.routes import router as application_router
+from app.api.auth import router as authentication_router
 
 
 def create_app() -> FastAPI:
@@ -27,6 +28,7 @@ def create_app() -> FastAPI:
         allow_origins=origins,
         allow_methods=["GET", "POST", "PUT", "DELETE"],
         allow_headers=["*"],
+        allow_credentials=True,
     )
 
     @app.get("/health")
@@ -43,6 +45,7 @@ def create_app() -> FastAPI:
             return JSONResponse(status_code=503, content={"status": "unavailable"})
         return {"status": "ok"}
 
+    app.include_router(authentication_router)
     app.include_router(application_router)
 
     return app
