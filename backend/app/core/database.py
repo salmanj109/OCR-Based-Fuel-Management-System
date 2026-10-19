@@ -13,8 +13,8 @@ from app.core.config import DatabaseSettings, get_database_settings
 def build_database_url(settings: DatabaseSettings) -> URL:
     return URL.create(
         "mssql+pyodbc",
-        username=settings.user,
-        password=settings.password,
+        username=settings.user if settings.auth == "sql" else None,
+        password=settings.password if settings.auth == "sql" else None,
         host=settings.host,
         port=settings.port,
         database=settings.name,

@@ -109,7 +109,7 @@ export const api = {
     body.append('file', file)
     return request<{ rows: ExtractedPrice[]; source: string; ocr_used: boolean }>('/api/fuel-prices/extract', { method: 'POST', body })
   },
-  approvePrices: (rows: ExtractedPrice[]) => request<{ updated_count: number }>(
+  approvePrices: (rows: ExtractedPrice[]) => request<{ saved_count: number }>(
     '/api/fuel-prices/approve',
     json('POST', { rows: rows.map(row => ({ name: row.Name, your_price: row['Your Price'], saving: row.Saving })) }),
   ),

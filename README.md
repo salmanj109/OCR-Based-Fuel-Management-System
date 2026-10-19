@@ -1,6 +1,6 @@
 # OCR Based Fuel Management System
 
-React/TypeScript frontend with a FastAPI backend. The new application reuses the repository's existing Python PDF parser, truck registry, trip planner, SQL Server queries, and OpenRouteService routing code. No database tables or ORM models are created by this project.
+React/TypeScript frontend with a FastAPI backend. The application reuses the repository's existing Python PDF parser, truck registry, trip planner, SQL Server queries, and OpenRouteService routing code. An idempotent SQL script creates the four tables this code expects; there are no ORM models.
 
 The team integration branch is `ORC_Main`. Each of the three contributors should develop on a separate branch and open a pull request into `ORC_Main`; see [CONTRIBUTING.md](CONTRIBUTING.md). Existing root Python files remain in place for the earlier Streamlit application.
 
@@ -34,6 +34,7 @@ backend/                Independent FastAPI application
                         Adapt preserved root Python modules
   tests/               Offline checks
   .env.example          Backend configuration template
+  sql/init.sql          Local SQL Server database and empty tables
   requirements.txt      Backend runtime dependencies
 app.py                  Preserved Streamlit PDF/price code
 app_1.py                Preserved Streamlit truck registry code
@@ -48,12 +49,12 @@ The root `requirements.txt` and Docker files are for the older application. Inst
 ## Prerequisites and configuration
 
 - Python 3.10+ and Node.js 20.19+ or 22.12+ with npm.
-- A reachable **existing** Microsoft SQL Server database, a SQL-authentication user with the needed permissions, and Microsoft ODBC Driver 17 or 18 for SQL Server installed on the backend computer. The driver name must match `DB_DRIVER` exactly.
+- A reachable Microsoft SQL Server instance and Microsoft ODBC Driver 17 or 18 for SQL Server installed on the backend computer. The driver name must match `DB_DRIVER` exactly. Use Windows authentication locally or SQL authentication when you have a SQL login.
 - An OpenRouteService API key for route planning. The other screens and `/health` can start without it.
 
-Copy `backend/.env.example` to `backend/.env` and set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_DRIVER`, and `API_KEY`. The file is Git-ignored. Never commit real credentials. `DB_ENCRYPT=yes` and `DB_TRUST_SERVER_CERTIFICATE=no` are the defaults; for a local SQL Server with a self-signed certificate, `DB_TRUST_SERVER_CERTIFICATE=yes` can be used for development. Enable SQL Server TCP/IP and ensure the selected port is reachable. On Windows, ODBC Data Sources lists installed drivers.
+Copy `backend/.env.example` to `backend/.env` and set `DB_HOST`, `DB_NAME`, `DB_DRIVER`, and `DB_AUTH`. Use `DB_AUTH=windows` with the Windows account running FastAPI; leave `DB_USER` and `DB_PASSWORD` blank. For `DB_AUTH=sql`, supply `DB_USER` and `DB_PASSWORD` locally. For a named instance such as `.\SQLEXPRESS`, set `DB_HOST=.\SQLEXPRESS` and leave `DB_PORT` blank. Set `API_KEY` when route planning is needed. The `.env` file is Git-ignored; never commit credentials. `DB_ENCRYPT=yes` and `DB_TRUST_SERVER_CERTIFICATE=no` are the defaults; the local development instance may need `DB_ENCRYPT=no` and `DB_TRUST_SERVER_CERTIFICATE=yes`. Enable TCP/IP and a reachable port for remote access. On Windows, ODBC Data Sources lists installed drivers.
 
-The existing code expects a `Truck_Detail` or `Truck_Details` table with discoverable name, fuel-average, and tank-capacity columns; `LovesLocations` with `StoreNumber`, `City`, `Address`, `Latitude`, `Longitude`; `Discounted_Fuel_Price` with `Name`, `Your Price`, `Savings`; and `Trip_Records` with `Starting_point`, `Destination_point`, `Total_Distance`, `Truck_Name`, `Truck_Average_L`, `Required_Time`, `Date`. These are **source-code expectations**, not a verified live schema. No migration or sample data is supplied. If your actual database differs, inspect it before changing the queries.
+The checked-in [`backend/sql/init.sql`](backend/sql/init.sql) creates `Fuel_Station` and empty `Truck_Detail`, `LovesLocations`, `Discounted_Fuel_Price`, and `Trip_Records` tables, using only column names found in the existing code. Run it once on a new local instance from the repository root with `sqlcmd -S '.\SQLEXPRESS' -E -b -i backend\sql\init.sql`. It can be rerun without dropping existing data. It does not import stations, trucks, prices, or trips. If you already have a project database, inspect its schema and data before using this script; existing tables are left alone.
 
 ## Run locally
 
@@ -87,7 +88,7 @@ In Visual Studio, choose **File → Open → Folder** and select the repository 
 
 `GET /health` checks that FastAPI is running. `GET /health/db` performs a read-only `SELECT 1`; it returns HTTP 503 when SQL Server is not configured or reachable. API documentation is at `http://localhost:8000/docs`.
 
-The application endpoints are `GET /api/dashboard`, `GET/POST/PUT/DELETE /api/trucks`, `GET /api/fuel-prices`, `POST /api/fuel-prices/extract`, `POST /api/fuel-prices/approve`, `GET /api/stations`, `GET /api/trips`, and `POST /api/trips/plan`. PDF extraction previews rows without writing to the database; approval updates matching rows in one transaction and rolls back if a name does not match. It does not create price rows. The upload limit is 10 MB.
+The application endpoints are `GET /api/dashboard`, `GET/POST/PUT/DELETE /api/trucks`, `GET /api/fuel-prices`, `POST /api/fuel-prices/extract`, `POST /api/fuel-prices/approve`, `GET /api/stations`, `GET /api/trips`, and `POST /api/trips/plan`. PDF extraction previews rows without writing to the database; approval updates matching names and inserts new names in one transaction. The upload limit is 10 MB.
 
 Run offline backend checks from `backend/`:
 
@@ -97,6 +98,6 @@ python -m unittest discover -s tests -v
 python -m app.core.database
 ```
 
-The database probe prints `available` or `unavailable`; an unavailable result is expected without a configured SQL Server. From `frontend/`, run `npm run build` for the TypeScript and production build check. The offline tests mock external routing and database writes, and process the repository's sample PDF. A real SQL Server and OpenRouteService key are still needed to verify their live behavior.
+The database probe prints `available` or `unavailable`. From `frontend/`, run `npm run build` for the TypeScript and production build check when needed. The offline tests mock external routing and database writes, and process the repository's sample PDF. This computer's local `Fuel_Station` connection and read endpoints were verified; a live OpenRouteService key and real station data are still needed to verify route planning.
 
 The preserved root Docker configuration starts `api.py` on port 8501; it has not been switched to this frontend/backend application. See [DOCKER.md](DOCKER.md) if you need that legacy deployment.

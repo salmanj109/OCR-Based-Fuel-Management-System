@@ -157,11 +157,11 @@ def approve_prices(payload: PriceApproval) -> dict:
         ]
     )
     try:
-        count = pdf.update_discounted_fuel_prices(frame)
+        count = pdf.update_discounted_fuel_prices(frame, insert_missing=True)
     except Exception as error:
         logger.warning("Approved prices could not be saved: %s", type(error).__name__)
-        raise HTTPException(status_code=503, detail="Approved prices could not be saved; check matching database rows") from error
-    return {"updated_count": count}
+        raise HTTPException(status_code=503, detail="Approved prices could not be saved to the database") from error
+    return {"saved_count": count}
 
 
 @router.get("/stations")

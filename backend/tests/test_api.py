@@ -88,6 +88,17 @@ class ApiTests(unittest.TestCase):
         connection.rollback.assert_called_once()
         connection.commit.assert_not_called()
 
+    def test_new_price_name_can_be_inserted_after_approval(self) -> None:
+        pdf, _, _ = get_legacy()
+        connection = MagicMock()
+        connection.cursor.return_value.rowcount = 0
+        frame = pd.DataFrame([{"Name": "101", "Your Price": "1.25", "Saving": "0.10"}])
+        with patch.object(pdf, "get_db_connection", return_value=connection):
+            saved = pdf.update_discounted_fuel_prices(frame, insert_missing=True)
+        self.assertEqual(saved, 1)
+        self.assertEqual(connection.cursor.return_value.execute.call_count, 2)
+        connection.commit.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
