@@ -2,6 +2,8 @@
 
 This repository has a minimal React/TypeScript frontend and a FastAPI backend with configurable SQL Server connectivity. No project tables, models, or application features have been added to the new backend.
 
+**Team members:** clone `https://github.com/salmanj109/OCR-Based-Fuel-Management-System.git`. The default branch is `ORC_Main`. Read [CONTRIBUTING.md](CONTRIBUTING.md) before pushing; each teammate needs a GitHub collaborator invitation to push, and should work on a separate branch.
+
 ## Structure
 
 ```text
@@ -16,8 +18,9 @@ backend/               Independent Python application
   requirements.txt     Backend-only dependencies
   .env.example         CORS and SQL Server configuration template
 api.py, app*.py        Existing Python implementation (preserved)
-scripts/, generated_maps/, Dockerfile, docker-compose.yml
+scripts/, Dockerfile, docker-compose.yml
                        Existing project assets and deployment files (preserved)
+generated_maps/          Generated locally by the legacy application, not tracked
 docs/legacy-readme.md  Previous README with legacy application notes
 ```
 

@@ -19,6 +19,10 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# Local output from the legacy application
+generated_maps/
+tmp*.pdf
+
 # Editors and operating systems
 .vs/
 .vscode/
