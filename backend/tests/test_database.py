@@ -4,6 +4,8 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 
+from sqlalchemy.dialects.mssql.pyodbc import MSDialect_pyodbc
+
 from app.core.config import DatabaseConfigurationError, DatabaseSettings, get_database_settings
 from app.core.database import build_database_url, check_database_connection
 
@@ -30,6 +32,19 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(url.password, settings.password)
         self.assertEqual(url.query["driver"], settings.driver)
         self.assertNotIn(settings.password, str(url))
+
+    def test_windows_auth_uses_trusted_connection(self) -> None:
+        settings = DatabaseSettings(
+            host=r".\SQLEXPRESS", port=None, name="Fuel_Station", user="", password="",
+            driver="ODBC Driver 17 for SQL Server", encrypt="no",
+            trust_server_certificate="yes", connect_timeout=5, auth="windows",
+        )
+        connection_string = MSDialect_pyodbc().create_connect_args(build_database_url(settings))[0][0]
+        self.assertIn("Trusted_Connection=Yes", connection_string)
+        self.assertNotIn("UID=", connection_string)
+        self.assertNotIn("PWD=", connection_string)
+        self.assertIn(r"Server=.\SQLEXPRESS", connection_string)
+        self.assertNotIn(",1433", connection_string)
 
     @patch("app.core.database.get_engine")
     def test_connection_probe_only_selects_one(self, mocked_engine: MagicMock) -> None:

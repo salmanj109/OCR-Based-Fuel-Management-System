@@ -12,15 +12,6 @@ load_dotenv(dotenv_path=env_path)
 API_KEY = os.getenv("API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-st.set_page_config(page_title="Truck Registry", layout="wide")
-
-if "message" not in st.session_state:
-    st.session_state.message = ""
-
-print(f"[app_1.py] API_KEY loaded: {API_KEY is not None}")
-print(f"[app_1.py] DATABASE_URL loaded: {DATABASE_URL is not None}")
-
-
 def _parse_database_name(url):
     if not url or "/" not in url:
         return "Fuel_Station"
@@ -394,6 +385,7 @@ def delete_truck_from_db(truck_name):
 
 def main():
     """Render the Streamlit UI for truck registry."""
+    st.set_page_config(page_title="Truck Registry", layout="wide")
     st.title("🚚 Truck Registry")
     st.write("Register a truck with its fuel average and fuel capacity, or remove a truck by name.")
     action = st.radio(

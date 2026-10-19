@@ -9,19 +9,23 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import DatabaseConfigurationError
 from app.core.database import check_database_connection
+from app.api.routes import router as application_router
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="OCR Based Fuel Management System")
     origins = [
         origin.strip()
-        for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+        for origin in os.getenv(
+            "CORS_ORIGINS",
+            "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174",
+        ).split(",")
         if origin.strip()
     ]
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
-        allow_methods=["GET"],
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
         allow_headers=["*"],
     )
 
@@ -38,6 +42,8 @@ def create_app() -> FastAPI:
         if not connected:
             return JSONResponse(status_code=503, content={"status": "unavailable"})
         return {"status": "ok"}
+
+    app.include_router(application_router)
 
     return app
 

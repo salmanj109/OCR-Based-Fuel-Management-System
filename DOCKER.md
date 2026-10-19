@@ -7,7 +7,7 @@ This project exposes the FastAPI application from `api.py` on port `8501`.
 - `Dockerfile` builds the Python API image and installs Microsoft ODBC Driver 17 for SQL Server.
 - `docker-compose.yml` builds/runs the service and maps `8501:8501`.
 - `.dockerignore` keeps local caches, Git data, `node_modules`, generated maps, and real `.env` secrets out of the image build context.
-- `.env.example` documents the runtime environment variables.
+- The example below documents the legacy runtime environment variables. The new FastAPI backend uses `backend/.env.example` instead.
 
 ## Run
 

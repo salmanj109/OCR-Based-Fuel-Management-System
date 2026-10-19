@@ -20,8 +20,6 @@ DISCOUNTED_FUEL_PRICE_TABLE = "Discounted_Fuel_Price"
 load_dotenv(dotenv_path=BASE_DIR / ".env")
 logger = logging.getLogger(__name__)
 
-st.set_page_config(page_title="PDF Price Processor", layout="wide")
-
 TABLE_SETTINGS = {
     "vertical_strategy": "lines",
     "horizontal_strategy": "lines",
@@ -366,7 +364,7 @@ def _prepare_output_records_for_update(output_df: pd.DataFrame) -> list[tuple]:
     return records
 
 
-def update_discounted_fuel_prices(output_df: pd.DataFrame) -> int:
+def update_discounted_fuel_prices(output_df: pd.DataFrame, insert_missing: bool = False) -> int:
     records = _prepare_output_records_for_update(output_df)
     table_sql = _quote_sql_server_identifier(DISCOUNTED_FUEL_PRICE_TABLE)
     name_col = _quote_sql_server_identifier(DB_OUTPUT_COLUMN_MAP["Name"])
@@ -376,6 +374,10 @@ def update_discounted_fuel_prices(output_df: pd.DataFrame) -> int:
         f"UPDATE {table_sql} "
         f"SET {price_col} = ?, {savings_col} = ? "
         f"WHERE {name_col} = ?"
+    )
+    insert_sql = (
+        f"INSERT INTO {table_sql} ({name_col}, {price_col}, {savings_col}) "
+        "VALUES (?, ?, ?)"
     )
 
     connection = None
@@ -388,17 +390,21 @@ def update_discounted_fuel_prices(output_df: pd.DataFrame) -> int:
             cursor.execute(update_sql, your_price, saving, name)
             if cursor.rowcount and cursor.rowcount > 0:
                 updated_count += cursor.rowcount
+            elif insert_missing:
+                cursor.execute(insert_sql, name, your_price, saving)
+                updated_count += 1
             else:
                 unmatched_names.append(name)
 
-        connection.commit()
         if unmatched_names:
+            connection.rollback()
             preview_names = ", ".join(unmatched_names[:10])
             extra_count = len(unmatched_names) - 10
             if extra_count > 0:
                 preview_names = f"{preview_names}, and {extra_count} more"
             raise DatabaseUpdateError(f"No matching database rows found for Name: {preview_names}")
 
+        connection.commit()
         return updated_count
     except DatabaseUpdateError:
         raise
@@ -754,7 +760,7 @@ def _parse_state_text_row(row_text):
     }
 
 
-def process_pdf_to_dataframe(pdf_path: Path) -> pd.DataFrame:
+def process_pdf_to_dataframe(pdf_path: Path, use_demo_prices: bool = True) -> pd.DataFrame:
     """Extract only table data from a PDF and return the final output DataFrame.
 
     This uses the page text instead of the grid extractor so wrapped rows are
@@ -786,7 +792,7 @@ def process_pdf_to_dataframe(pdf_path: Path) -> pd.DataFrame:
     # If a canonical Demo_output.csv exists, use it only as a fallback for
     # missing pricing columns. Keep the uploaded PDF's Site/Name values.
     demo_path = BASE_DIR / "Demo_output.csv"
-    if demo_path.exists():
+    if use_demo_prices and demo_path.exists():
         try:
             canon_df = pd.read_csv(demo_path, dtype=str)
             if "Site" in canon_df.columns and "Your Price" in canon_df.columns and "Savings" in canon_df.columns:
@@ -830,6 +836,7 @@ def process_pdf_to_csv(pdf_path: Path) -> bytes:
 
 
 def main():
+    st.set_page_config(page_title="PDF Price Processor", layout="wide")
     st.title("📄 PDF Price Processor")
     st.write("Upload a PDF file or specify a server path to extract pricing data and download as CSV.")
     
