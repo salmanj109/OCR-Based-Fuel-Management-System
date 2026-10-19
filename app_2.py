@@ -18,9 +18,6 @@ load_dotenv(dotenv_path=env_path)
 API_KEY = os.getenv('API_KEY')
 DATABASE_URL = os.getenv('DATABASE_URL')
 
-print(f"[app_2.py] API_KEY loaded: {API_KEY is not None}")
-print(f"[app_2.py] DATABASE_URL loaded: {DATABASE_URL is not None}")
-
 def _parse_database_name(url):
     if not url or '/' not in url:
         return 'Fuel_Station'
@@ -1104,11 +1101,15 @@ def _build_fuel_management_summary(
     route_distance_km,
     current_fuel_l,
     fuel_average_l,
+    tank_capacity_l=200.0,
+    reserve_buffer_km=20.0,
 ):
     """Plan one or more required refueling stops along the selected route."""
-    tank_capacity_l = 200.0
-    half_tank_l = 100.0
-    reserve_buffer_km = 20.0
+    tank_capacity_l = float(tank_capacity_l)
+    reserve_buffer_km = float(reserve_buffer_km)
+    half_tank_l = tank_capacity_l / 2
+    if tank_capacity_l <= 0 or reserve_buffer_km < 0:
+        raise ValueError('Tank capacity must be positive and reserve distance cannot be negative')
     current_fuel_l = min(max(float(current_fuel_l or 0), 0.0), tank_capacity_l)
     fuel_average_l = float(fuel_average_l or 0)
     route_distance_km = float(route_distance_km or 0)
