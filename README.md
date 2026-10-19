@@ -1,198 +1,95 @@
-# Distance & Fuel Calculator
+# OCR Based Fuel Management System
 
-This repository contains a Streamlit application that calculates driving distance between two user-specified locations, estimates fuel requirements for a selected truck, suggests fueling stops along the route using a local LovesLocations dataset, stores a trip record in the database, and generates an interactive HTML route map saved under `generated_maps/`.
+This repository has a minimal React/TypeScript frontend and a FastAPI backend with configurable SQL Server connectivity. No project tables, models, or application features have been added to the new backend.
 
----
+## Structure
 
-## Quick Overview
-
-- Primary UI: Streamlit app (`Distance-Fuel_calculator.py`) — run with `streamlit run Distance-Fuel_calculator.py`.
-- Geocoding & routing: OpenRouteService (requires `API_KEY`).
-- Database: SQL Server accessed via `pyodbc` ODBC Driver (expects `ODBC Driver 17 for SQL Server`).
-- Persisted artifacts: Trip records in the `Trip_Records` table and route map HTML files in `generated_maps/`.
-
----
-
-## Environment Variables
-
-- `API_KEY` — OpenRouteService API key (required for geocoding and routing).
-- `DATABASE_URL` — optional connection URL used to parse a default database name. If not provided, the code will fallback to local SQL Server instances (`DESKTOP-...` or `localhost`).
-
-The app loads variables from a `.env` file located next to `Distance-Fuel_calculator.py`.
-
----
-
-## Database Expectations (required tables & columns)
-
-The app inspects the database schema dynamically, but it expects the following logical tables/columns:
-
-- Truck details table: `Truck_Detail` or `Truck_Details` (schema may vary)
-  - A column containing the truck display name (candidates: `truck_name`, `truckname`, `name`, `truck`, `vehicle_name`, etc.)
-  - A numeric column for fuel consumption expressed as liters per 100 km (candidates: `fuel_average_l`, `fuel_avg_l`, `fuel_average`, `fuel_avg`, etc.)
-
-- Loves locations table: `dbo.LovesLocations`
-  - Columns: `City`, `Address`, `Latitude`, `Longitude` (Latitude/Longitude numeric)
-
-- Trip records table: `Trip_Records`
-  - Used for inserting trip summary records. Expected columns: `Starting_point`, `Destination_point`, `Total_Distance`, `Truck_Name`, `Truck_Average_L`, `Required_Time`, `Date`.
-
-If these tables or columns aren't present, the app attempts to detect reasonable candidates or returns readable error messages.
-
----
-
-## Streamlit UI — Inputs and Validation
-
-When you open the app (`streamlit run Distance-Fuel_calculator.py`) the UI exposes the following controls:
-
-- Starting Point (text input)
-  - Accepts: place names, "City, Address" strings, or freeform address text.
-  - Validated: must be non-empty when calculating.
-
-- Destination (text input)
-  - Accepts same formats as starting point.
-  - Validated: must be non-empty when calculating.
-
-- Truck Selection (selectbox)
-  - Populated from the Truck_Detail(s) table.
-  - Validated: user must select one truck before calculating.
-
-- Current Fuel in Truck (number input, litres)
-  - Default: `0.00`
-  - Used to compute available travel range and recommended/refuel warnings.
-
-- Calculate Button (`📍 Calculate Distance`)
-  - Triggers the main flow: geocoding → route computation → fuel management → store record → map generation.
-
-Client-side validations will show error messages if required fields are missing.
-
----
-
-## What the App Does (high-level flow)
-
-1. Load available trucks from DB (`get_available_trucks`).
-2. Read user inputs (starting point, destination, selected truck, current fuel).
-3. Resolve both locations to coordinates using OpenRouteService; fallback to local `LovesLocations` DB search if ORS fails (`resolve_location_to_coordinates`).
-4. Calculate driving route and metrics (`calculate_distance_with_api`) via OpenRouteService directions API.
-5. Extract addresses along the route from `LovesLocations` within a corridor and mark the best fueling stop based on current fuel and truck efficiency (`_build_fuel_management_summary`).
-6. Store a `Trip_Records` row (`store_trip_record`) with the summary of the trip.
-7. Generate a local HTML map file in `generated_maps/` and open it in a new browser tab.
-8. Present metrics and detailed info in the Streamlit UI.
-
----
-
-## Programmatic API (functions you can call directly)
-
-Although the app is driven by the Streamlit UI, these core functions are exposed in `Distance-Fuel_calculator.py` and can be called from other code/tests:
-
-- `get_available_trucks()` → dict { success: bool, trucks: [str], error?: str }
-- `get_truck_fuel_average(truck_name)` → dict { success, truck_name, fuel_average_l, error? }
-- `resolve_location_to_coordinates(location_name, city=None, address=None)` → dict { success, found, latitude, longitude, label, source, error? }
-- `calculate_distance_with_api(lat1, lon1, lat2, lon2)` → dict { success, distance_km, distance_miles, distance_meters, duration_seconds, route_coordinates, addresses_along_route, ... }
-- `calculate_and_store_trip_record(starting_point, destination_point, truck_name, current_fuel_l=None, starting_city=None, starting_address=None, destination_city=None, destination_address=None)`
-  - Returns a comprehensive dict (see example below) and also persists a `Trip_Records` entry on success.
-
-### Example: `calculate_and_store_trip_record` return structure (trimmed sample)
-
-```json
-{
-  "success": true,
-  "starting_point": "Calgary, AB",
-  "destination_point": "Edmonton, AB",
-  "truck": { "success": true, "truck_name": "TruckA", "fuel_average_l": 30.0 },
-  "start_coordinates": { "latitude": 51.0447, "longitude": -114.0719, "found": true },
-  "destination_coordinates": { "latitude": 53.5461, "longitude": -113.4938, "found": true },
-  "distance": {
-    "success": true,
-    "distance_km": 299.5,
-    "distance_miles": 186.2,
-    "distance_meters": 299500,
-    "duration_seconds": 13500,
-    "route_coordinates": [{"lat":51.0,"lon":-114.0}, ...],
-    "addresses_along_route": [ {"city":"Red Deer","address":"Some Rd","latitude":52.2681,"longitude":-113.8112,"distance_from_start_km":150.3, ...} ]
-  },
-  "fuel_required_l": 9.98,
-  "estimated_duration_hours": 3.75,
-  "current_fuel_l": 40.0,
-  "fuel_management": {
-    "current_fuel_l": 40.0,
-    "fuel_average_l_per_100km": 30.0,
-    "available_travel_range_km": 133.33,
-    "safe_operating_range_km": 113.33,
-    "recommended_fueling_point": { "city": "Red Deer", "address": "Some Rd", "recommended_fueling_point": true, "distance_from_start_km": 150.3, "fuel_remaining_at_stop_l": 0.0, ... }
-  },
-  "trip_record_id": 123,
-  "trip_record_label": "T123",
-  "calculation_date": "06/03/2026",
-  "start_location": "Calgary, AB",
-  "destination_location": "Edmonton, AB"
-}
+```text
+frontend/              React + TypeScript + Vite application
+  src/                 Minimal startup screen
+  public/              Static assets (currently empty)
+  .env.example         Future frontend configuration reference
+backend/               Independent Python application
+  app/main.py          FastAPI entry point and health endpoints
+  app/core/            SQL Server configuration, engine, and session provider
+  tests/               Offline database configuration checks
+  requirements.txt     Backend-only dependencies
+  .env.example         CORS and SQL Server configuration template
+api.py, app*.py        Existing Python implementation (preserved)
+scripts/, generated_maps/, Dockerfile, docker-compose.yml
+                       Existing project assets and deployment files (preserved)
+docs/legacy-readme.md  Previous README with legacy application notes
 ```
 
----
+The existing root Python files and Docker configuration belong to the earlier application. They are preserved and are **not** part of the new minimal frontend/backend startup commands below. No database schema or existing data was changed.
 
-## Generated Artifacts
+## Open the backend in Visual Studio
 
-- HTML route maps are written into `generated_maps/` with filenames like `route_T123_ab12cd34.html`, where `T123` is the stored trip record label or ID. The function `_build_route_map_file_uri()` returns a `file://` URI to the generated HTML and the app attempts to open it in a new browser tab.
+In Visual Studio, choose **File → Open → Folder** and select this repository's `backend/` folder. Solution Explorer will show `app/main.py`, `app/core/`, `tests/`, `requirements.txt`, and `.env.example` in Folder View. A `.sln` or `.pyproj` file is not needed for Folder View. Install Visual Studio's Python development support if Python tools are not available.
 
----
-
-## Error Handling & Messages
-
-- If `API_KEY` is missing, geocoding and routing functions return an explicit error: `API_KEY is not configured`.
-- Database connection issues are returned as readable errors (e.g., `Database connection failed`). The app attempts two common local connection strings before failing.
-- If a truck or required column is not found, the app returns errors such as `Truck name column not found` or `Required columns not found`.
-- If ORS fails to resolve locations, the app falls back to local `LovesLocations` database search.
-
----
-
-## Troubleshooting & Notes
-
-- Ensure `ODBC Driver 17 for SQL Server` is installed and a suitable SQL Server instance is reachable.
-- The app tries `DESKTOP-7K48LCE` as server and then `localhost` as a fallback. Edit `get_db_connection()` if you need to connect to a different host or use SQL auth.
-- Make sure `LovesLocations` contains useful address data to enable finding fuel stops along routes.
-- If OpenRouteService rate limits your calls or returns unexpected responses, inspect the returned `error` in the function responses.
-
----
+Use a terminal in Visual Studio with its working directory set to `backend/`, select the `backend/.venv` Python interpreter, and run `python -m uvicorn app.main:app --reload --port 8000`. If you open the repository root instead, use the root-directory command in the next section so the legacy `app.py` is not imported by mistake.
 
 ## Prerequisites
 
-Before running the application, ensure the following requirements are met:
+- Node.js 20.19+ or 22.12+ and npm
+- Python 3.10+
+- For database connectivity: a reachable Microsoft SQL Server instance with TCP/IP enabled, a database and SQL-authentication account, and a Microsoft ODBC Driver for SQL Server installed on the backend machine. Driver 17 is installed in this development environment; Driver 18 is also supported.
 
-1. Install all required Python packages from the `requirements.txt` file:
+## Start the backend
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+From `backend/`:
 
-2. Obtain an OpenRouteService API key from OpenRouteService and add it to your environment variables.
-
-3. Configure a valid database connection by providing a `DATABASE_URL`.
-
-4. Create a `.env` file in the project root directory and add the following values:
-
-   ```env
-   API_KEY=your_openrouteservice_api_key
-   DATABASE_URL=your_database_connection_url
-   ```
-
-5. Ensure SQL Server is accessible and the required tables (`Truck_Detail [Id, Name, Fuel_Average_L]`, `LovesLocations`, and `Trip_Records [Id, Starting_point, Destination_point, Total_Distance, Truck_Name, Truck_Average_L, Required_Time, Date]`) exist in the database.
-
----
-
-## Run the Application
-
-After completing the prerequisites, start the Streamlit application using:
-
-```bash
-streamlit run Distance-Fuel_calculator.py
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+# Edit .env with your own database connection values.
+python -m uvicorn app.main:app --reload --port 8000
 ```
 
-The application will:
+If your terminal is at the repository root (`OCR-Based-Fuel-Management-System`), use this command instead:
 
-* Connect to the configured database.
-* Use the OpenRouteService API for geocoding and route calculations.
-* Calculate distance, fuel requirements, and recommended fueling stops.
-* Store trip records in the database.
-* Generate an interactive route map in the `generated_maps/` directory.
+```powershell
+& .\backend\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --reload --port 8000
+```
 
+The repository also contains a legacy root `app.py`. Starting `uvicorn app.main:app` from the repository root without `--app-dir backend` imports that file instead of the new backend package and fails with `Could not import module "app.main"`.
 
+Visit `http://localhost:8000/health`. It returns `{"status":"ok"}` without contacting the database. `http://localhost:8000/health/db` runs a read-only `SELECT 1` and returns `{"status":"ok"}` on success or HTTP 503 with `{"status":"unavailable"}` on failure. It does not return connection details. FastAPI's generated docs are at `http://localhost:8000/docs`.
+
+### SQL Server configuration
+
+1. Ensure SQL Server accepts TCP connections on the configured host and port (default `1433`) and that the database and SQL-authentication user already exist. This setup does not create them.
+2. Install Microsoft ODBC Driver 17 or 18 for SQL Server on the backend machine. Use the installed driver name in `DB_DRIVER`. On Windows, the ODBC Data Sources administrator can show installed drivers.
+3. Edit `backend/.env`: set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, and `DB_DRIVER`. `DB_ENCRYPT=yes` and `DB_TRUST_SERVER_CERTIFICATE=no` are the secure defaults. For a local SQL Server using a self-signed certificate, you can set `DB_TRUST_SERVER_CERTIFICATE=yes` for development.
+4. Run `python -m app.core.database` from `backend/` to perform the same read-only check. It prints only `available` or `unavailable` and exits with code 0 or 1. You can also call `/health/db`.
+
+The backend loads `backend/.env` if present without overriding environment variables already set in the process. `.env` is Git-ignored. The SQLAlchemy engine is created lazily; a missing or offline SQL Server does not prevent `/health` from responding. The reusable `get_db_session()` dependency is ready for later database routes. No tables or ORM models are created here.
+
+The backend accepts `http://localhost:5173` as the development CORS origin by default. To change it, set `CORS_ORIGINS` before starting Uvicorn, with comma-separated origins if needed:
+
+```powershell
+$env:CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
+```
+
+`CORS_ORIGINS` can be set in `backend/.env` or in the process environment.
+
+Run the offline database checks from `backend/` with `python -m unittest discover -s tests -v`.
+
+## Start the frontend
+
+In a separate terminal, from `frontend/`:
+
+```powershell
+npm install
+npm run dev
+```
+
+Visit the local URL printed by Vite, normally `http://localhost:5173`. For a production build check, run `npm run build` from `frontend/`.
+
+The frontend and backend start independently. The frontend does not call the API yet.
+
+## Later integration
+
+OpenRouteService, Leaflet/OpenStreetMap, PDF processing/OCR, and AI integration are reserved for later steps. Example environment files contain placeholders only. The existing legacy code documents its own earlier dependencies in the root `requirements.txt` and `docs/legacy-readme.md`.
