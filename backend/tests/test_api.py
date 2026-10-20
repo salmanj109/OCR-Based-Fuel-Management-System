@@ -1,4 +1,4 @@
-"""API checks that do not need SQL Server or an OpenRouteService key."""
+"""API checks that do not need SQL Server or a Google Maps key."""
 
 import unittest
 from pathlib import Path
@@ -9,6 +9,7 @@ import pandas as pd
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.api.auth import require_user
 from app.services.legacy import get_legacy
 
 
@@ -16,6 +17,12 @@ client = TestClient(app)
 
 
 class ApiTests(unittest.TestCase):
+    def setUp(self) -> None:
+        app.dependency_overrides[require_user] = lambda: None
+
+    def tearDown(self) -> None:
+        app.dependency_overrides.pop(require_user, None)
+
     def test_health_is_independent_of_database(self) -> None:
         response = client.get("/health")
         self.assertEqual(response.status_code, 200)
@@ -30,25 +37,34 @@ class ApiTests(unittest.TestCase):
             })
         self.assertEqual(response.status_code, 422)
 
+    def test_trip_explains_missing_routing_key(self) -> None:
+        truck = {"id": "T1", "name": "Truck 1", "fuel_average_l": 30, "tank_capacity_l": 100}
+        with patch("app.api.routes.data.find_truck", return_value=truck), \
+             patch("app.api.routes.google_maps.server_key", return_value=""):
+            response = client.post("/api/trips/plan", json={
+                "origin": "Calgary", "destination": "Edmonton", "truck_name": "Truck 1",
+                "current_fuel_l": 70, "reserve_km": 20,
+            })
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("backend/.env", response.json()["detail"])
+
     def test_trip_uses_actual_capacity_and_explicit_reserve(self) -> None:
         truck = {"id": "T1", "name": "Truck 1", "fuel_average_l": 30, "tank_capacity_l": 100}
-        routing = SimpleNamespace(
-            API_KEY="test-key",
-            resolve_location_to_coordinates=lambda name: {
-                "success": True, "latitude": 51.0, "longitude": -114.0, "label": name,
-            },
-            calculate_distance_with_api=lambda *_: {
-                "success": True, "distance_km": 250, "duration_seconds": 10800,
-                "route_coordinates": [], "addresses_along_route": [],
-            },
-            store_trip_record=lambda **_: {"success": True, "record_id": 7},
-        )
+        routing = SimpleNamespace(store_trip_record=lambda **_: {"success": True, "record_id": 7})
         fuel = {
             "safe_operating_range_km": 180, "fuel_status": "Insufficient",
             "fuel_status_message": "Refuel required", "recommended_fueling_points": [],
             "safety_failure": None,
         }
         with patch("app.api.routes.data.find_truck", return_value=truck), \
+             patch("app.api.routes.google_maps.server_key", return_value="test-key"), \
+             patch("app.api.routes.google_maps.geocode_address", side_effect=lambda name: {
+                 "success": True, "latitude": 51.0, "longitude": -114.0, "label": name,
+             }), \
+             patch("app.api.routes.google_maps.calculate_route", return_value={
+                 "success": True, "distance_km": 250, "duration_seconds": 10800,
+                 "route_coordinates": [], "addresses_along_route": [],
+             }), \
              patch("app.api.routes.get_legacy", return_value=(None, None, routing)), \
              patch.object(routing, "_build_fuel_management_summary", return_value=fuel, create=True) as planner:
             response = client.post("/api/trips/plan", json={
@@ -98,6 +114,39 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(saved, 1)
         self.assertEqual(connection.cursor.return_value.execute.call_count, 2)
         connection.commit.assert_called_once()
+
+
+class AuthenticationTests(unittest.TestCase):
+    def test_application_endpoint_requires_login(self) -> None:
+        response = TestClient(app).get("/api/trucks")
+        self.assertEqual(response.status_code, 401)
+
+    def test_signup_validates_password_before_database_access(self) -> None:
+        response = TestClient(app).post("/api/auth/signup", json={
+            "name": "Team Member", "email": "member@example.com", "password": "short",
+        })
+        self.assertEqual(response.status_code, 422)
+
+    def test_login_sets_http_only_cookie(self) -> None:
+        user = {"id": 1, "name": "Team Member", "email": "member@example.com"}
+        with patch("app.api.auth.auth.sign_in", return_value=(user, "test-token")):
+            response = TestClient(app).post("/api/auth/login", json={
+                "email": "member@example.com", "password": "a valid test password",
+            })
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("httponly", response.headers["set-cookie"].lower())
+        self.assertIn("samesite=lax", response.headers["set-cookie"].lower())
+        self.assertEqual(response.json()["user"], user)
+
+    def test_logout_requires_request_token(self) -> None:
+        with patch("app.api.auth.auth.user_for_session", return_value={
+            "id": 1, "name": "Team Member", "email": "member@example.com",
+        }), patch("app.api.auth.auth.revoke_session") as revoke:
+            with TestClient(app) as signed_in:
+                signed_in.cookies.set("fuel_session", "test-token")
+                response = signed_in.post("/api/auth/logout")
+        self.assertEqual(response.status_code, 403)
+        revoke.assert_not_called()
 
 
 if __name__ == "__main__":

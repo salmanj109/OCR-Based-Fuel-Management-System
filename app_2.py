@@ -384,7 +384,7 @@ def _resolve_location_via_ors(location_text):
 
     try:
         response = requests.get(
-            'https://api.openrouteservice.org/geocode/search',
+            'https://api.heigit.org/pelias/v1/search',
             headers={'Authorization': API_KEY, 'Accept': 'application/json'},
             params={'text': query, 'size': 1},
             timeout=10,
@@ -1394,7 +1394,7 @@ def calculate_distance_with_api(lat1, lon1, lat2, lon2):
     Returns: dict with distance in km and meters, plus addresses along the route
     """
     try:
-        url = "https://api.openrouteservice.org/v2/directions/driving-car"
+        url = "https://api.heigit.org/openrouteservice/v2/directions/driving-car"
         
         headers = {
             "Authorization": API_KEY,

@@ -32,6 +32,8 @@ cd ..
 
 Configure each person's `backend/.env` locally. For a new local SQL Server instance, run the checked-in `backend/sql/init.sql` script as described in `README.md`; it creates the empty `Fuel_Station` database and required tables without deleting existing data. Use `DB_AUTH=windows` for Windows authentication or `DB_AUTH=sql` with a local SQL login. Never commit real `.env` files or credentials. The API `/health` endpoint works without a database connection.
 
+After pulling the Login and Sign Up update, rerun `backend/sql/init.sql` to add the authentication tables. Each teammate should create their own account in the frontend and keep their password private.
+
 Install the frontend separately:
 
 ```powershell

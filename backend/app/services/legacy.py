@@ -37,5 +37,5 @@ def get_legacy() -> tuple[ModuleType, ModuleType, ModuleType]:
     pdf, trucks, trips = _modules()
     # The original routing module reads API_KEY at import time. Refresh it so
     # environment changes made before a server restart are honoured.
-    trips.API_KEY = os.getenv("API_KEY")
+    trips.API_KEY = os.getenv("API_KEY", "").strip()
     return pdf, trucks, trips

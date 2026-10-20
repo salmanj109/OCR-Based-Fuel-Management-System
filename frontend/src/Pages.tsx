@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import MapPanel from './MapPanel'
 import { api, API_BASE, type ExtractedPrice, type Price, type Station, type TripInput, type TripPlan, type TripRecord, type Truck, type TruckInput } from './api'
 
@@ -20,50 +19,69 @@ function TripTable({ rows, details = false }: { rows: TripRecord[]; details?: bo
   </>
 }
 
-export function Dashboard({ plan }: { plan: TripPlan | null }) {
-  const [summary, setSummary] = useState<Awaited<ReturnType<typeof api.dashboard>> | null>(null)
-  const [error, setError] = useState('')
-  useEffect(() => { void api.dashboard().then(setSummary).catch(error => setError(error.message)) }, [])
-  return <><Header title="Dashboard" subtitle="A live overview of registered trucks and saved trip plans." />{error && <Notice>{error}</Notice>}
-    <div className="metric-grid"><div className="metric"><span>Registered trucks</span><strong>{summary?.truck_count ?? '—'}</strong><small>From SQL Server</small></div><div className="metric"><span>Planned trips</span><strong>{summary?.planned_trip_count ?? '—'}</strong><small>From Trip_Records</small></div><div className="metric"><span>Estimated fuel demand</span><strong>{summary ? n(summary.estimated_fuel_demand_l, 1) : '—'} <em>L</em></strong><small>Calculated from saved trips</small></div><div className="metric"><span>Latest fuel status</span><strong className="metric-word">{plan?.fuel_status || 'Unverified'}</strong><small>Current browser session</small></div></div>
-    <section className="panel"><div className="panel-heading"><div><span className="eyebrow">ACTIVITY</span><h2>Recent trips</h2></div></div>{summary?.recent_trips.length ? <TripTable rows={summary.recent_trips} /> : <Empty>{error ? 'Trip data will appear when SQL Server is available.' : 'No trips have been saved yet.'}</Empty>}</section>
-    <section className="panel muted-panel"><h2>Route preview</h2>{plan ? <MapPanel plan={plan} /> : <><p>Plan a trip to see its route, fuel demand, and recommended stops.</p><Link className="button" to="/trip-planner">Open Trip Planner →</Link></>}</section>
-  </>
-}
-
 export function TruckRegistry() {
   const blank: TruckInput = { name: '', fuel_average_l: 0, tank_capacity_l: 0 }
   const [rows, setRows] = useState<Truck[]>([])
   const [form, setForm] = useState<TruckInput>(blank)
   const [editing, setEditing] = useState<string | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [busy, setBusy] = useState(false)
+  const dialogRef = useRef<HTMLDialogElement>(null)
+  const nameInputRef = useRef<HTMLInputElement>(null)
+  const addButtonRef = useRef<HTMLButtonElement>(null)
   const load = () => void api.trucks().then(setRows).catch(error => setError(error.message))
   useEffect(() => { load() }, [])
+  useEffect(() => { if (formOpen && dialogRef.current && !dialogRef.current.open) { dialogRef.current.showModal(); nameInputRef.current?.focus() } }, [formOpen])
+  function closeForm() {
+    if (busy) return
+    setFormOpen(false)
+    setEditing(null)
+    setForm(blank)
+    setError('')
+    addButtonRef.current?.focus()
+  }
+  function openAdd() {
+    setForm(blank)
+    setEditing(null)
+    setError('')
+    setSuccess('')
+    setFormOpen(true)
+  }
+  function openEdit(truck: Truck) {
+    setForm({ name: truck.name, fuel_average_l: truck.fuel_average_l, tank_capacity_l: truck.tank_capacity_l })
+    setEditing(truck.name)
+    setError('')
+    setSuccess('')
+    setFormOpen(true)
+  }
   async function save(event: FormEvent) {
     event.preventDefault(); setError(''); setSuccess('')
     if (!form.name.trim() || form.fuel_average_l <= 0 || form.tank_capacity_l <= 0) { setError('Enter a name, consumption, and capacity greater than zero.'); return }
     setBusy(true)
-    try { if (editing) await api.editTruck(editing, form); else await api.addTruck(form); setSuccess(editing ? 'Truck updated.' : 'Truck registered.'); setEditing(null); setForm(blank); load() }
+    try { if (editing) await api.editTruck(editing, form); else await api.addTruck(form); setSuccess(editing ? 'Vehicle updated.' : 'Vehicle added.'); setFormOpen(false); setEditing(null); setForm(blank); load(); addButtonRef.current?.focus() }
     catch (error) { setError((error as Error).message) } finally { setBusy(false) }
   }
   async function remove(name: string) {
-    if (!window.confirm(`Delete ${name} from SQL Server?`)) return
+    if (!window.confirm(`Delete ${name} from the vehicle list?`)) return
     setBusy(true); setError(''); setSuccess('')
-    try { await api.deleteTruck(name); setSuccess('Truck deleted.'); load() }
+    try { await api.deleteTruck(name); setSuccess('Vehicle deleted.'); load() }
     catch (error) { setError((error as Error).message) } finally { setBusy(false) }
   }
-  return <><Header title="Truck Registry" subtitle="Register and maintain the trucks used in fuel planning." />{error && <Notice>{error}</Notice>}{success && <Notice success>{success}</Notice>}
-    <div className="two-column"><section className="panel"><div className="panel-heading"><div><span className="eyebrow">FLEET DATA</span><h2>{editing ? 'Edit truck' : 'Register a truck'}</h2></div></div>
-      <form className="form-grid" onSubmit={save}><label>Truck name or identifier<input value={form.name} maxLength={120} onChange={event => setForm({ ...form, name: event.target.value })} required /></label>
+  return <div className="vehicle-page">
+    {success && <Notice success>{success}</Notice>}{error && !formOpen && <Notice>{error}</Notice>}
+    <section className="vehicle-list-card" aria-label="Vehicle list">
+      <div className="vehicle-list-heading"><h2>Vehicle List</h2><button ref={addButtonRef} className="vehicle-add-button" onClick={openAdd}>Add Vehicle</button></div>
+      <div className="vehicle-table-wrap"><table className="vehicle-table"><thead><tr><th>Vehicle Name</th><th>Fuel Consumption</th><th>Tank Capacity</th><th>Actions</th></tr></thead><tbody>{rows.map(truck => <tr key={truck.id || truck.name}><td><strong>{truck.name}</strong></td><td>{n(truck.fuel_average_l, 2)} L/100 km</td><td>{n(truck.tank_capacity_l, 2)} L</td><td><div className="vehicle-row-actions"><button className="vehicle-edit-button" onClick={() => openEdit(truck)} aria-label={`Edit ${truck.name}`}>Edit</button><button className="vehicle-delete-button" onClick={() => void remove(truck.name)} disabled={busy} aria-label={`Delete ${truck.name}`}>Delete</button></div></td></tr>)}</tbody></table>{!rows.length && <div className="vehicle-table-empty">No vehicles yet. Add your first vehicle to start planning trips.</div>}</div>
+    </section>
+    {formOpen && <dialog className="vehicle-dialog" ref={dialogRef} aria-labelledby="vehicle-dialog-title" onCancel={event => { if (busy) event.preventDefault(); else closeForm() }}><div className="vehicle-dialog-heading"><div><span className="eyebrow">FLEET DATA</span><h2 id="vehicle-dialog-title">{editing ? 'Edit Vehicle' : 'Add Vehicle'}</h2></div><button type="button" className="vehicle-dialog-close" onClick={closeForm} aria-label="Close form">×</button></div>{error && <Notice>{error}</Notice>}
+      <form className="form-grid" onSubmit={save}><label>Vehicle name or identifier<input ref={nameInputRef} value={form.name} maxLength={120} onChange={event => setForm({ ...form, name: event.target.value })} required /></label>
         <label>Fuel consumption (L/100 km)<input type="number" min="0.01" step="0.01" value={form.fuel_average_l || ''} onChange={event => setForm({ ...form, fuel_average_l: Number(event.target.value) })} required /></label>
         <label>Tank capacity (L)<input type="number" min="0.01" step="0.01" value={form.tank_capacity_l || ''} onChange={event => setForm({ ...form, tank_capacity_l: Number(event.target.value) })} required /></label>
-        <div className="button-row"><button disabled={busy}>{busy ? 'Saving…' : editing ? 'Save changes' : 'Register truck'}</button>{editing && <button type="button" className="secondary" onClick={() => { setEditing(null); setForm(blank) }}>Cancel</button>}</div></form>
-    </section><section className="panel"><div className="panel-heading"><div><span className="eyebrow">REGISTERED</span><h2>Trucks ({rows.length})</h2></div></div>
-      {rows.length ? <div className="list-stack">{rows.map(truck => <div className="list-item" key={truck.id || truck.name}><div><strong>{truck.name}</strong><small>{n(truck.fuel_average_l, 2)} L/100 km · {n(truck.tank_capacity_l, 2)} L tank</small></div><div className="inline-actions"><button className="text-button" onClick={() => { setEditing(truck.name); setForm({ name: truck.name, fuel_average_l: truck.fuel_average_l, tank_capacity_l: truck.tank_capacity_l }) }}>Edit</button><button className="text-button danger" onClick={() => void remove(truck.name)}>Delete</button></div></div>)}</div> : <Empty>No truck records available.</Empty>}
-    </section></div>
-  </>
+        <div className="vehicle-form-actions"><button type="button" className="secondary" onClick={closeForm} disabled={busy}>Cancel</button><button disabled={busy}>{busy ? 'Saving…' : editing ? 'Save Changes' : 'Add Vehicle'}</button></div></form>
+    </dialog>}
+  </div>
 }
 
 export function FuelPrices() {
@@ -126,7 +144,7 @@ export function TripPlanner({ onPlan }: { onPlan: (plan: TripPlan) => void }) {
       <label>Current fuel (L)<input type="number" min="0" max={selected?.tank_capacity_l} step="0.01" value={form.current_fuel_l} onChange={event => setForm({ ...form, current_fuel_l: Number(event.target.value) })} required /></label>
       <label>Emergency reserve (km)<input type="number" min="0" max="1000" step="1" value={form.reserve_km} onChange={event => setForm({ ...form, reserve_km: Number(event.target.value) })} required /></label>
       <div className="hint">The original planner used a 20 km reserve. Set this trip’s reserve explicitly.</div><button disabled={busy || !trucks.length}>{busy ? 'Calculating route…' : 'Calculate and save trip'}</button>
-    </form></section><section className="panel map-card"><div className="panel-heading"><div><span className="eyebrow">ROUTE</span><h2>Map preview</h2></div></div>{result ? <MapPanel plan={result} /> : <Empty>Enter a trip to display a route from OpenRouteService.</Empty>}</section></div>
+    </form></section><section className="panel map-card"><div className="panel-heading"><div><span className="eyebrow">ROUTE</span><h2>Map preview</h2></div></div><MapPanel plan={result} />{!result && <p className="subtle">Enter a trip to display its route on this map.</p>}</section></div>
     {result && <><div className="metric-grid"><div className="metric"><span>Distance</span><strong>{n(result.distance_km)} <em>km</em></strong></div><div className="metric"><span>Estimated time</span><strong>{n(result.duration_seconds / 3600)} <em>h</em></strong></div><div className="metric"><span>Required fuel</span><strong>{n(result.fuel_required_l, 2)} <em>L</em></strong></div><div className="metric"><span>Safe range</span><strong>{n(result.safe_operating_range_km)} <em>km</em></strong></div></div>
       <section className="panel"><div className="panel-heading"><div><span className="eyebrow">FUEL STATUS</span><h2>{result.fuel_status}</h2></div></div><p>{result.fuel_status_message}</p>{result.safety_failure && <Notice>{result.safety_failure.message}</Notice>}</section>
       <section className="panel"><div className="panel-heading"><div><span className="eyebrow">ALONG THE ROUTE</span><h2>Recommended fuel stops</h2></div></div><p className="subtle">Station savings and prices are from existing database records. Freshness and availability are unverified.</p>{result.recommended_stops.length ? <StopList stops={result.recommended_stops} /> : <Empty>No refuelling stops were recommended.</Empty>}</section>
@@ -162,6 +180,6 @@ export function Settings() {
   useEffect(() => { void api.health().then(() => setApiState('Connected')).catch(() => setApiState('Unavailable')); void api.databaseHealth().then(() => setDbState('Connected')).catch(() => setDbState('Unavailable')) }, [])
   return <><Header title="Settings" subtitle="Local connection status and configuration needed for live data." />
     <section className="panel"><div className="panel-heading"><div><span className="eyebrow">SYSTEM</span><h2>Connection status</h2></div></div><div className="list-stack"><div className="list-item"><strong>FastAPI backend</strong><span>{apiState}</span></div><div className="list-item"><strong>SQL Server</strong><span>{dbState}</span></div><div className="list-item"><strong>API address</strong><code>{API_BASE}</code></div></div></section>
-    <section className="panel"><h2>Local configuration</h2><p>Set SQL Server values and <code>API_KEY</code> in your local <code>backend/.env</code>. This file is ignored by Git. The existing project has no authentication or roles, so keep write endpoints limited to trusted local development until authorization is designed.</p></section>
+    <section className="panel"><h2>Local configuration</h2><p>Set SQL Server values and <code>GOOGLE_MAPS_API_KEY</code> in your local <code>backend/.env</code>. This file is ignored by Git. Use a Google Maps demo key for local testing; use separate restricted server and browser keys with billing for production.</p></section>
   </>
 }

@@ -54,3 +54,38 @@ BEGIN
     );
 END;
 GO
+
+IF OBJECT_ID(N'dbo.AuthUsers', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.AuthUsers (
+        [Id] INT IDENTITY(1, 1) NOT NULL PRIMARY KEY,
+        [Name] NVARCHAR(120) NOT NULL,
+        [Email] NVARCHAR(254) NOT NULL UNIQUE,
+        [PasswordHash] NVARCHAR(255) NOT NULL,
+        [CreatedAt] DATETIME2(0) NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+END;
+GO
+
+IF OBJECT_ID(N'dbo.AuthSessions', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.AuthSessions (
+        [TokenHash] CHAR(64) NOT NULL PRIMARY KEY,
+        [UserId] INT NOT NULL REFERENCES dbo.AuthUsers([Id]) ON DELETE CASCADE,
+        [ExpiresAt] DATETIME2(0) NOT NULL,
+        [CreatedAt] DATETIME2(0) NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+    CREATE INDEX IX_AuthSessions_UserId ON dbo.AuthSessions([UserId]);
+END;
+GO
+
+IF OBJECT_ID(N'dbo.AuthPasswordResets', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.AuthPasswordResets (
+        [TokenHash] CHAR(64) NOT NULL PRIMARY KEY,
+        [UserId] INT NOT NULL UNIQUE REFERENCES dbo.AuthUsers([Id]) ON DELETE CASCADE,
+        [ExpiresAt] DATETIME2(0) NOT NULL,
+        [CreatedAt] DATETIME2(0) NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+END;
+GO

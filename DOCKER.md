@@ -2,6 +2,8 @@
 
 This project exposes the FastAPI application from `api.py` on port `8501`.
 
+This is the preserved legacy API. The new `backend/` login and signup routes do not apply to this Docker service; use the backend run commands in `README.md` for the authenticated application.
+
 ## Files
 
 - `Dockerfile` builds the Python API image and installs Microsoft ODBC Driver 17 for SQL Server.
