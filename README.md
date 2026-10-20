@@ -1,6 +1,6 @@
-# OCR Based Fuel Management System
+# Flevio — OCR Based Fuel Management System
 
-React/TypeScript frontend with a FastAPI backend. The application reuses the repository's existing Python PDF parser, truck registry, trip planner, SQL Server queries, and OpenRouteService routing code. An idempotent SQL script creates four project tables and two authentication tables; there are no ORM models.
+React/TypeScript frontend with a FastAPI backend. The application reuses the repository's existing Python PDF parser, truck registry, fuel planner, and SQL Server queries. The React trip planner uses Google Maps Platform for address lookup, driving routes, and map display. An idempotent SQL script creates four project tables and three authentication tables; there are no ORM models.
 
 The team integration branch is `ORC_Main`. Each of the three contributors should develop on a separate branch and open a pull request into `ORC_Main`; see [CONTRIBUTING.md](CONTRIBUTING.md). Existing root Python files remain in place for the earlier Streamlit application.
 
@@ -11,7 +11,7 @@ The team integration branch is `ORC_Main`. Each of the three contributors should
 | Dashboard | Shows truck count, trip count, estimated fuel demand, recent trips, and the latest route in this browser session | Existing SQL Server tables and trip calculations |
 | Truck Registry | Lists, adds, edits, and deletes registered trucks | `app_1.py` schema discovery and writes |
 | Fuel Prices | Extracts rows from a supported text PDF, lets a user review/edit them, then saves approved price rows | `app.py` PDF parser and update logic |
-| Trip Planner | Resolves locations, gets an OpenRouteService route, estimates fuel from the selected truck, recommends stops, and saves a trip | `app_2.py` routing, fuel rules, stations, and trip insert |
+| Trip Planner | Resolves locations, gets a Google driving route, estimates fuel from the selected truck, recommends stops, and saves a trip | Google Maps adapter plus `app_2.py` fuel rules, stations, and trip insert |
 | Fuel Stops | Shows existing station locations and recommendations from the latest plan | `app_2.py` station data and stop selection |
 | Trip History | Lists and searches saved trips | Existing `Trip_Records` table |
 
@@ -24,7 +24,7 @@ frontend/               React, TypeScript, Vite, React Router, Leaflet UI
   src/App.tsx           Navigation and routes
   src/AuthPage.tsx      Login and Sign Up forms
   src/Pages.tsx         Six application screens and local settings
-  src/MapPanel.tsx      OpenStreetMap route display
+  src/MapPanel.tsx      Google Maps route display
   src/api.ts            Typed FastAPI client
 backend/                Independent FastAPI application
   app/main.py           App, CORS, health checks
@@ -52,11 +52,11 @@ The root `requirements.txt` and Docker files are for the older application. Inst
 
 - Python 3.10+ and Node.js 20.19+ or 22.12+ with npm.
 - A reachable Microsoft SQL Server instance and Microsoft ODBC Driver 17 or 18 for SQL Server installed on the backend computer. The driver name must match `DB_DRIVER` exactly. Use Windows authentication locally or SQL authentication when you have a SQL login.
-- An OpenRouteService API key for route planning. The other screens and `/health` can start without it.
+- A Google Maps Demo Key for local route planning. The other screens and `/health` can start without it.
 
-Copy `backend/.env.example` to `backend/.env` and set `DB_HOST`, `DB_NAME`, `DB_DRIVER`, and `DB_AUTH`. Use `DB_AUTH=windows` with the Windows account running FastAPI; leave `DB_USER` and `DB_PASSWORD` blank. For `DB_AUTH=sql`, supply `DB_USER` and `DB_PASSWORD` locally. For a named instance such as `.\SQLEXPRESS`, set `DB_HOST=.\SQLEXPRESS` and leave `DB_PORT` blank. Set `API_KEY` when route planning is needed. The `.env` file is Git-ignored; never commit credentials. `DB_ENCRYPT=yes` and `DB_TRUST_SERVER_CERTIFICATE=no` are the defaults; the local development instance may need `DB_ENCRYPT=no` and `DB_TRUST_SERVER_CERTIFICATE=yes`. Enable TCP/IP and a reachable port for remote access. On Windows, ODBC Data Sources lists installed drivers.
+Copy `backend/.env.example` to `backend/.env` and set `DB_HOST`, `DB_NAME`, `DB_DRIVER`, and `DB_AUTH`. Use `DB_AUTH=windows` with the Windows account running FastAPI; leave `DB_USER` and `DB_PASSWORD` blank. For `DB_AUTH=sql`, supply `DB_USER` and `DB_PASSWORD` locally. For a named instance such as `.\SQLEXPRESS`, set `DB_HOST=.\SQLEXPRESS` and leave `DB_PORT` blank. Set `GOOGLE_MAPS_API_KEY` to a [Maps Demo Key](https://developers.google.com/maps/demo-key) for local route planning. The same demo key is used by the browser map unless `GOOGLE_MAPS_BROWSER_KEY` is set. The `.env` file is Git-ignored; never commit credentials. When moving to a billed production project, use separate keys with server and website restrictions. `DB_ENCRYPT=yes` and `DB_TRUST_SERVER_CERTIFICATE=no` are the defaults; the local development instance may need `DB_ENCRYPT=no` and `DB_TRUST_SERVER_CERTIFICATE=yes`. Enable TCP/IP and a reachable port for remote access. On Windows, ODBC Data Sources lists installed drivers.
 
-The checked-in [`backend/sql/init.sql`](backend/sql/init.sql) creates `Fuel_Station` and empty `Truck_Detail`, `LovesLocations`, `Discounted_Fuel_Price`, and `Trip_Records` tables, using column names found in the existing code. It also creates `AuthUsers` and `AuthSessions` for Login and Sign Up. Run it from the repository root with `sqlcmd -S '.\SQLEXPRESS' -E -b -i backend\sql\init.sql`. It can be rerun after pulling updates without dropping existing data. It does not import stations, trucks, prices, or trips. If you already have a project database, inspect its schema and data before using this script; existing tables are left alone.
+The checked-in [`backend/sql/init.sql`](backend/sql/init.sql) creates `Fuel_Station` and empty `Truck_Detail`, `LovesLocations`, `Discounted_Fuel_Price`, and `Trip_Records` tables, using column names found in the existing code. It also creates `AuthUsers`, `AuthSessions`, and `AuthPasswordResets` for account access. Run it from the repository root with `sqlcmd -S '.\SQLEXPRESS' -E -b -i backend\sql\init.sql`. It can be rerun after pulling updates without dropping existing data. It does not import stations, trucks, prices, or trips. If you already have a project database, inspect its schema and data before using this script; existing tables are left alone.
 
 ## Run locally
 
@@ -84,7 +84,7 @@ npm run dev
 
 Open the URL Vite prints, usually `http://localhost:5173`. If that port is occupied, Vite may use `5174`; both are in the default backend `CORS_ORIGINS`. For a different frontend origin, edit `CORS_ORIGINS` in `backend/.env` as a comma-separated list. `frontend/.env.example` shows the optional `VITE_API_BASE_URL` override; it defaults to `http://localhost:8000`.
 
-Open `/signup` to create a team account, then use `/login` on later visits. Every teammate should have their own password. Sessions expire after seven days or when the user signs out. Use the same hostname (`localhost` by default) for the frontend and API so the login cookie works during local development. `AUTH_COOKIE_SECURE=false` is for local HTTP; set it to `true` when serving over HTTPS. Email verification and password reset are not implemented.
+Open `/signup` to create a team account, then use `/login` on later visits. Every teammate should have their own password. Sessions expire after seven days or when the user signs out. Use the same hostname (`localhost` by default) for the frontend and API so the login cookie works during local development. `AUTH_COOKIE_SECURE=false` is for local HTTP; set it to `true` when serving over HTTPS. The **Forgot password?** link can email a one-time reset link after SMTP is configured in `backend/.env`; see [backend setup](backend/README.md). If email is unavailable during local development, use the backend's `python reset_password.py` command. Email verification is not implemented.
 
 In Visual Studio, choose **File → Open → Folder** and select the repository root to see both `frontend/` and `backend/`. Use a terminal rooted at `backend/` for the first command above. A `.sln` file is not required for Folder View.
 
@@ -92,7 +92,7 @@ In Visual Studio, choose **File → Open → Folder** and select the repository 
 
 `GET /health` checks that FastAPI is running. `GET /health/db` performs a read-only `SELECT 1`; it returns HTTP 503 when SQL Server is not configured or reachable. API documentation is at `http://localhost:8000/docs`.
 
-Authentication endpoints are `POST /api/auth/signup`, `POST /api/auth/login`, `GET /api/auth/me`, and `POST /api/auth/logout`. The application endpoints are `GET /api/dashboard`, `GET/POST/PUT/DELETE /api/trucks`, `GET /api/fuel-prices`, `POST /api/fuel-prices/extract`, `POST /api/fuel-prices/approve`, `GET /api/stations`, `GET /api/trips`, and `POST /api/trips/plan`. Application endpoints require a session; write requests also require the CSRF token returned at login. PDF extraction previews rows without writing to the database; approval updates matching names and inserts new names in one transaction. The upload limit is 10 MB.
+Authentication endpoints are `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`, `GET /api/auth/me`, and `POST /api/auth/logout`. The application endpoints are `GET /api/dashboard`, `GET/POST/PUT/DELETE /api/trucks`, `GET /api/fuel-prices`, `POST /api/fuel-prices/extract`, `POST /api/fuel-prices/approve`, `GET /api/stations`, `GET /api/trips`, and `POST /api/trips/plan`. Application endpoints require a session; write requests also require the CSRF token returned at login. PDF extraction previews rows without writing to the database; approval updates matching names and inserts new names in one transaction. The upload limit is 10 MB.
 
 Run offline backend checks from `backend/`:
 
@@ -102,6 +102,6 @@ python -m unittest discover -s tests -v
 python -m app.core.database
 ```
 
-The database probe prints `available` or `unavailable`. From `frontend/`, run `npm run build` for the TypeScript and production build check when needed. The offline tests mock external routing and database writes, and process the repository's sample PDF. This computer's local `Fuel_Station` connection and read endpoints were verified; a live OpenRouteService key and real station data are still needed to verify route planning.
+The database probe prints `available` or `unavailable`. From `frontend/`, run `npm run build` for the TypeScript and production build check when needed. The offline tests mock external routing and database writes, and process the repository's sample PDF. A local Google demo key and real station data are needed to verify route planning end to end.
 
 The preserved root Docker configuration starts `api.py` on port 8501; it has not been switched to this frontend/backend application. See [DOCKER.md](DOCKER.md) if you need that legacy deployment.

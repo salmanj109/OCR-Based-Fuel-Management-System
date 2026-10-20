@@ -14,12 +14,12 @@ from app.api.auth import router as authentication_router
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="OCR Based Fuel Management System")
+    app = FastAPI(title="Flevio API")
     origins = [
         origin.strip()
         for origin in os.getenv(
             "CORS_ORIGINS",
-            "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174",
+            "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:4173,http://127.0.0.1:4173",
         ).split(",")
         if origin.strip()
     ]

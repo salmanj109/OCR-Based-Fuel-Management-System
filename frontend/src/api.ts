@@ -119,6 +119,8 @@ function json(method: string, body: unknown): RequestInit {
 export const api = {
   signup: (name: string, email: string, password: string) => request<AuthSession>('/api/auth/signup', json('POST', { name, email, password })),
   login: (email: string, password: string) => request<AuthSession>('/api/auth/login', json('POST', { email, password })),
+  forgotPassword: (email: string) => request<{ message: string }>('/api/auth/forgot-password', json('POST', { email })),
+  resetPassword: (token: string, password: string) => request<{ message: string }>('/api/auth/reset-password', json('POST', { token, password })),
   me: () => request<AuthSession>('/api/auth/me'),
   logout: () => request<{ status: string }>('/api/auth/logout', { method: 'POST' }),
   dashboard: () => request<{ truck_count: number; planned_trip_count: number; estimated_fuel_demand_l: number; recent_trips: TripRecord[] }>('/api/dashboard'),
@@ -138,6 +140,7 @@ export const api = {
   ),
   stations: () => request<{ rows: Station[]; price_freshness: string }>('/api/stations'),
   trips: () => request<{ rows: TripRecord[]; count: number }>('/api/trips'),
+  mapConfig: () => request<{ browser_key: string }>('/api/maps/config'),
   planTrip: (trip: TripInput) => request<TripPlan>('/api/trips/plan', json('POST', trip)),
   health: () => request<{ status: string }>('/health'),
   databaseHealth: () => request<{ status: string }>('/health/db'),

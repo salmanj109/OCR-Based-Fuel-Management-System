@@ -12,7 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import DatabaseConfigurationError
 from app.api.auth import require_user
-from app.services import data
+from app.services import data, google_maps
 from app.services.legacy import get_legacy
 
 
@@ -181,6 +181,15 @@ def trip_history() -> dict:
         raise _database_unavailable(error) from error
 
 
+@router.get("/maps/config")
+def map_config() -> dict:
+    """Provide the browser key required by Google Maps JavaScript API."""
+    key = google_maps.browser_key()
+    if not key:
+        raise HTTPException(status_code=503, detail="Add GOOGLE_MAPS_API_KEY to backend/.env and restart FastAPI.")
+    return {"browser_key": key}
+
+
 @router.post("/trips/plan", status_code=201)
 def plan_trip(payload: TripInput) -> dict:
     try:
@@ -192,19 +201,20 @@ def plan_trip(payload: TripInput) -> dict:
     if payload.current_fuel_l > truck["tank_capacity_l"]:
         raise HTTPException(status_code=422, detail="Current fuel exceeds this truck's tank capacity")
 
-    _, _, trips = get_legacy()
-    if not trips.API_KEY:
-        raise HTTPException(status_code=503, detail="OpenRouteService API key is not configured")
+    if not google_maps.server_key():
+        raise HTTPException(
+            status_code=503,
+            detail="Trip planning needs a Google Maps demo key. Add GOOGLE_MAPS_API_KEY to backend/.env and restart FastAPI.",
+        )
 
-    start = trips.resolve_location_to_coordinates(payload.origin.strip())
-    end = trips.resolve_location_to_coordinates(payload.destination.strip())
+    _, _, trips = get_legacy()
+    start = google_maps.geocode_address(payload.origin.strip())
+    end = google_maps.geocode_address(payload.destination.strip())
     if not start.get("success") or not end.get("success"):
-        raise HTTPException(status_code=422, detail="Origin or destination could not be resolved")
-    route = trips.calculate_distance_with_api(
-        start["latitude"], start["longitude"], end["latitude"], end["longitude"]
-    )
+        raise HTTPException(status_code=422, detail=start.get("error") or end.get("error") or "Origin or destination could not be resolved")
+    route = google_maps.calculate_route(start, end, trips)
     if not route.get("success"):
-        raise HTTPException(status_code=502, detail="Routing service could not calculate this trip")
+        raise HTTPException(status_code=502, detail=route.get("error") or "Routing service could not calculate this trip")
 
     fuel = trips._build_fuel_management_summary(
         route.get("addresses_along_route", []),

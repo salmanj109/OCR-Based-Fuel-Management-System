@@ -11,7 +11,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import DatabaseConfigurationError
-from app.services import auth
+from app.services import auth, password_reset
 
 
 logger = logging.getLogger(__name__)
@@ -29,6 +29,15 @@ class SignupInput(BaseModel):
 class LoginInput(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=128)
+
+
+class ForgotPasswordInput(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordInput(BaseModel):
+    token: str = Field(min_length=32, max_length=128)
+    password: str = Field(min_length=12, max_length=128)
 
 
 @dataclass(frozen=True)
@@ -91,6 +100,32 @@ def login(payload: LoginInput, response: Response) -> dict:
         raise _database_unavailable(error) from error
     _set_session_cookie(response, token)
     return {"user": user, "csrf_token": auth.csrf_token(token)}
+
+
+@router.post("/forgot-password")
+def forgot_password(payload: ForgotPasswordInput) -> dict[str, str]:
+    try:
+        password_reset.request_password_reset(str(payload.email))
+    except password_reset.EmailConfigurationError as error:
+        raise HTTPException(status_code=503, detail="Password reset email is not configured") from error
+    except password_reset.EmailDeliveryError as error:
+        logger.warning("Password reset email delivery failed: %s", type(error.__cause__).__name__)
+        raise HTTPException(status_code=503, detail="Could not send reset email. Try again later") from error
+    except DATABASE_ERRORS as error:
+        raise _database_unavailable(error) from error
+    return {"message": "If an account exists for this email, a reset link has been sent."}
+
+
+@router.post("/reset-password")
+def reset_password(payload: ResetPasswordInput, response: Response) -> dict[str, str]:
+    try:
+        password_reset.reset_password(payload.token, payload.password)
+    except password_reset.InvalidResetToken as error:
+        raise HTTPException(status_code=400, detail="Reset link is invalid or expired") from error
+    except DATABASE_ERRORS as error:
+        raise _database_unavailable(error) from error
+    response.delete_cookie(COOKIE_NAME, path="/")
+    return {"message": "Password updated. Sign in with your new password."}
 
 
 @router.get("/me")
