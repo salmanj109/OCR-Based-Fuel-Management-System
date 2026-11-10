@@ -1087,6 +1087,16 @@ def _select_best_station(candidates, prefer_savings=True):
                     float(point.get('distance_from_route_km') or 0),
                 ),
             )[0]
+    with_price = [point for point in candidates if point.get('fuel_price') is not None]
+    if with_price:
+        return sorted(
+            with_price,
+            key=lambda point: (
+                float(point['fuel_price']),
+                -_route_position_km(point),
+                float(point.get('distance_from_route_km') or 0),
+            ),
+        )[0]
     return sorted(
         candidates,
         key=lambda point: (

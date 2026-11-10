@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { api, type TripPlan } from './api'
+import { api, type TripPlan, type Station } from './api'
 
 type Point = { lat: number; lng: number }
 type MapObject = { setMap: (map: null) => void }
@@ -19,6 +19,7 @@ declare global {
 }
 
 let googleMapsPromise: Promise<GoogleMaps> | null = null
+const emptyStations: Station[] = []
 
 function loadGoogleMaps(key: string): Promise<GoogleMaps> {
   if (window.google?.maps) return Promise.resolve(window.google.maps)
@@ -38,7 +39,7 @@ function loadGoogleMaps(key: string): Promise<GoogleMaps> {
   return googleMapsPromise
 }
 
-export default function MapPanel({ plan }: { plan: TripPlan | null }) {
+export default function MapPanel({ plan, stations = emptyStations }: { plan: TripPlan | null; stations?: Station[] }) {
   const element = useRef<HTMLDivElement>(null)
   const [error, setError] = useState('')
 
@@ -57,11 +58,13 @@ export default function MapPanel({ plan }: { plan: TripPlan | null }) {
 
         const points = plan?.route_coordinates.map(point => ({ lat: point.lat, lng: point.lon })) || []
         const map = new maps.Map(container, {
-          center: points[0] || { lat: 30.3753, lng: 69.3451 },
+          center: points[0] || (stations.length ? { lat: stations[0].latitude, lng: stations[0].longitude } : { lat: 30.3753, lng: 69.3451 }),
           zoom: points.length ? 8 : 5, mapTypeControl: false, streetViewControl: false,
         })
         if (points.length) {
           overlays = [new maps.Polyline({ path: points, map, strokeColor: '#0866b2', strokeWeight: 5 })]
+          overlays.push(new maps.Marker({ position: points[0], map, title: `Origin: ${plan?.origin}` }))
+          overlays.push(new maps.Marker({ position: points[points.length - 1], map, title: `Destination: ${plan?.destination}` }))
           const bounds = new maps.LatLngBounds()
           points.forEach(point => bounds.extend(point))
           plan?.recommended_stops.forEach(stop => {
@@ -70,6 +73,14 @@ export default function MapPanel({ plan }: { plan: TripPlan | null }) {
             overlays.push(new maps.Marker({
               position, map, title: `Stop ${stop.stop_sequence}: ${stop.address}, ${stop.city}`,
             }))
+          })
+          map.fitBounds(bounds, 24)
+        } else if (stations.length) {
+          const bounds = new maps.LatLngBounds()
+          stations.filter(station => station.status !== 'Inactive').forEach(station => {
+            const position = { lat: station.latitude, lng: station.longitude }
+            bounds.extend(position)
+            overlays.push(new maps.Marker({ position, map, title: `${station.name || station.store_number}: ${station.address}, ${station.city}` }))
           })
           map.fitBounds(bounds, 24)
         }
@@ -83,7 +94,7 @@ export default function MapPanel({ plan }: { plan: TripPlan | null }) {
       overlays.forEach(overlay => overlay.setMap(null))
       container.replaceChildren()
     }
-  }, [plan])
+  }, [plan, stations])
 
   return <>{error && <div className="notice error" role="alert">{error}</div>}<div ref={element} className="route-map" role="img" aria-label="Planned route on Google Maps" /></>
 }
