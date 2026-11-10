@@ -4,6 +4,7 @@ import logging
 import os
 import secrets
 from dataclasses import dataclass
+from typing import Literal
 
 import pyodbc
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -76,6 +77,39 @@ def require_user(request: Request) -> CurrentSession:
     return CurrentSession(user=user, token=token)
 
 
+def require_roles(*roles: str):
+    def check(session: CurrentSession = Depends(require_user)) -> CurrentSession:
+        if session.user["role"] not in roles:
+            raise HTTPException(status_code=403, detail="This role cannot access this resource")
+        return session
+    return check
+
+
+class UserCreateInput(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    email: EmailStr
+    password: str = Field(min_length=12, max_length=128)
+    role: Literal["Admin", "Fleet Manager", "Fuel Coordinator", "Dispatcher", "Driver"]
+    driver_id: int | None = None
+
+
+class UserRoleInput(BaseModel):
+    role: Literal["Admin", "Fleet Manager", "Fuel Coordinator", "Dispatcher", "Driver"]
+    driver_id: int | None = None
+    is_active: bool = True
+
+
+def validate_driver_link(role: str, driver_id: int | None) -> None:
+    if role == "Driver" and driver_id is None:
+        raise HTTPException(status_code=422, detail="Driver accounts require a linked driver")
+    if role != "Driver" and driver_id is not None:
+        raise HTTPException(status_code=422, detail="Only driver accounts can link a driver")
+    if driver_id is not None:
+        from app.services import data
+        if data.get_driver(driver_id) is None:
+            raise HTTPException(status_code=422, detail="Driver not found")
+
+
 @router.post("/signup", status_code=201)
 def signup(payload: SignupInput, response: Response) -> dict:
     if not payload.name.strip():
@@ -84,10 +118,46 @@ def signup(payload: SignupInput, response: Response) -> dict:
         user, token = auth.create_account(payload.name, str(payload.email), payload.password)
     except auth.EmailAlreadyRegistered as error:
         raise HTTPException(status_code=409, detail="An account with this email already exists") from error
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
     except DATABASE_ERRORS as error:
         raise _database_unavailable(error) from error
     _set_session_cookie(response, token)
     return {"user": user, "csrf_token": auth.csrf_token(token)}
+
+
+@router.get("/users")
+def users(session: CurrentSession = Depends(require_roles("Admin"))) -> list[dict]:
+    try:
+        return auth.list_users()
+    except DATABASE_ERRORS as error:
+        raise _database_unavailable(error) from error
+
+
+@router.post("/users", status_code=201)
+def create_user(payload: UserCreateInput, session: CurrentSession = Depends(require_roles("Admin"))) -> dict:
+    try:
+        validate_driver_link(payload.role, payload.driver_id)
+        return auth.create_user(payload.name, str(payload.email), payload.password, payload.role, payload.driver_id)
+    except pyodbc.IntegrityError as error:
+        raise HTTPException(status_code=409, detail="Email or driver account is already linked") from error
+    except DATABASE_ERRORS as error:
+        raise _database_unavailable(error) from error
+
+
+@router.put("/users/{user_id}")
+def change_user(user_id: int, payload: UserRoleInput, session: CurrentSession = Depends(require_roles("Admin"))) -> dict:
+    if user_id == session.user["id"] and (payload.role != "Admin" or not payload.is_active):
+        raise HTTPException(status_code=422, detail="You cannot remove your own administrator access")
+    try:
+        validate_driver_link(payload.role, payload.driver_id)
+        if not auth.update_user(user_id, payload.role, payload.driver_id, payload.is_active):
+            raise HTTPException(status_code=404, detail="User not found")
+        return next(user for user in auth.list_users() if user["id"] == user_id)
+    except pyodbc.IntegrityError as error:
+        raise HTTPException(status_code=409, detail="Driver account is already linked") from error
+    except DATABASE_ERRORS as error:
+        raise _database_unavailable(error) from error
 
 
 @router.post("/login")

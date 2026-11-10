@@ -119,17 +119,6 @@ a {
     opacity: 1
 }
 
-.sidebar-footer {
-    margin-top: auto;
-    padding: 16px 12px 0;
-    border-top: 1px solid #2a597d;
-    font-size: 12px;
-    color: #bfd7e9;
-    display: flex;
-    align-items: center;
-    gap: 8px
-}
-
 .status-dot {
     width: 8px;
     height: 8px;
@@ -604,8 +593,7 @@ code {
         font-size: 12px
     }
 
-    .nav-link span,
-    .sidebar-footer {
+    .nav-link span {
         display: none
     }
 
@@ -653,3 +641,13 @@ code {
         max-width: none
     }
 }
+.assistant-chat { min-height: 280px; max-height: 60vh; overflow-y: auto; }
+.assistant-message { max-width: 78%; margin: 12px 0; padding: 12px 16px; border-radius: 12px; background: #f1f5fa; white-space: pre-wrap; }
+.assistant-message.user { margin-left: auto; background: #e8f1fc; }
+.assistant-message p { margin: 6px 0 0; }
+.assistant-input { flex: 1 1 300px; }
+.assistant-suggestions { flex-wrap: wrap; margin: 16px 0; }
+.report-bar { display: grid; grid-template-columns: 110px 1fr 65px; gap: 12px; align-items: center; margin: 12px 0; font-size: 13px; }
+.report-bar div { height: 12px; border-radius: 8px; background: #e7eef6; overflow: hidden; }
+.report-bar i { display: block; height: 100%; background: #0874b9; border-radius: inherit; }
+@media print { .sidebar, .topbar, .module-tools, .reports-page button { display: none !important; } .app-shell { display: block !important; } .main-area, .content { width: 100% !important; margin: 0 !important; padding: 0 !important; } .panel { box-shadow: none !important; break-inside: avoid; } }
